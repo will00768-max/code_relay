@@ -1,6 +1,6 @@
 # Codex → DeepSeek 代理服务
 
-将 OpenAI **Responses API**（`/v1/responses`）请求代理转发到 DeepSeek **Chat Completions API**（`/chat/completions`），同时完整保留流式 SSE 事件格式、工具调用、思维链（reasoning）等特性。使用 **FastAPI** 构建，支持管理面板、Token 统计、余额监控。
+将 OpenAI **Responses API**（`/responses`）请求代理转发到 DeepSeek **Chat Completions API**（`/chat/completions`），同时完整保留流式 SSE 事件格式、工具调用、思维链（reasoning）等特性。使用 **FastAPI** 构建，支持管理面板、Token 统计、余额监控。
 
 > **GitHub**：[https://github.com/will00768-max/code_relay](https://github.com/will00768-max/code_relay)
 
@@ -28,9 +28,9 @@
 - **流式 SSE 事件**：完整实现 `response.created` → `response.output_text.delta` → `response.completed` 事件序列
 - **工具调用（Tool Calls）**：支持非流式和流式两种场景下的 function_call / function_call_output
 - **思维链（Reasoning）**：透传 DeepSeek 的 `reasoning_content`，保留推理过程
-- **多模态图片透传**：支持 `image_url`、Codex `image/url`、`image/base64` 三种图片格式（需模型支持）
+- **多模态图片透传**：支持 `image_url`、Codex `image/url`、`image/base64` 三种图片格式（需模型支持，DeepSeek V4暂不支持）
 - **模型名映射**：自动将 `deepseek-chat`、`deepseek-v3` 等别名映射到 DeepSeek 实际支持的模型
-- **Chat Completions 透传**：`/v1/chat/completions` 端点直接转发，无需格式转换
+- **Chat Completions 透传**：`/chat/completions` 端点直接转发，无需格式转换
 - **可选鉴权**：配置 `PROXY_API_KEY` 后对所有代理请求进行 Bearer Token 校验
 - **Token 统计**：每次调用后自动记录到 SQLite，按模型、日期分组，含缓存命中/未命中统计
 - **余额监控**：定时查询 DeepSeek 账户余额，追踪今日/累计消费
@@ -219,7 +219,7 @@ docker run -d `
 
 ## Codex CLI 配置教程
 
-> 适用于 **Codex CLI**（命令行工具）、**VSCode Codex 插件** 和 **Codex**（[codex.openai.com](https://codex.openai.com) Web 端），配置完成后重启即可生效。
+> 适用于 **Codex CLI**（命令行工具）、**VSCode Codex 插件** 和 **Codex**（[https://openai.com/zh-Hans-CN/codex/](https://openai.com/zh-Hans-CN/codex/) Web 端），配置完成后重启即可生效。
 
 ### 配置文件路径
 
@@ -234,10 +234,10 @@ docker run -d `
 # 指定使用自定义 DeepSeek provider
 model_provider = "deepseek"
 
-# 模型名，代理服务会将其转发到 DeepSeek 实际模型
-model = "deepseek-v4-flash"
+# 模型名，填写任意 GPT 模型名即可，代理服务会自动映射到 DeepSeek 实际模型
+model = "gpt-4o"
 
-# 推理努力程度：low / medium / high
+# 推理努力程度：high / max
 model_reasoning_effort = "high"
 
 # 允许联网访问
@@ -256,7 +256,7 @@ model_verbosity = "high"
 [model_providers.deepseek]
 name = "DeepSeek"
 
-# 指向本代理服务地址
+# 指向本代理服务地址:端口
 base_url = "http://127.0.0.1:8000"
 
 # 使用 OpenAI Responses API 协议（本代理的核心协议）
@@ -271,10 +271,10 @@ requires_openai_auth = true
 | 字段 | 说明 |
 |------|------|
 | `model_provider` | 必须设为 `"deepseek"`，匹配下方 `[model_providers.deepseek]` 的 key |
-| `model` | 模型名，代理会自动将 `deepseek-chat`、`deepseek-v3` 等别名映射到正确模型 |
-| `model_reasoning_effort` | 控制 Codex 发送请求时的推理预算（影响 `max_tokens` 等参数） |
+| `model` | 填写任意 GPT 模型名（如 `gpt-4o`、`gpt-4-turbo`、`gpt-4.5` 等），代理服务以 `DEEPSEEK_MODEL` 环境变量中设置的模型实际请求，此处填写内容不影响最终调用的模型 |
+| `model_reasoning_effort` | 控制 Codex 发送请求时的推理预算（影响 `max_tokens` 等参数），支持 `high` / `max` |
 | `base_url` | 代理服务地址，默认 `http://127.0.0.1:8000`；若部署到远程服务器需改为对应 IP |
-| `wire_api` | 必须设为 `"responses"`，Codex 将使用 `/v1/responses` 端点发送请求 |
+| `wire_api` | 必须设为 `"responses"`，Codex 将使用 `/responses` 端点发送请求 |
 | `requires_openai_auth` | 设为 `true` 后 Codex 会在请求头附加 `Authorization: Bearer <token>`；代理服务未设置 `PROXY_API_KEY` 时不校验此 token |
 | `disable_response_storage` | 禁用 OpenAI 云端对话存储，对话内容不会上传 |
 
@@ -292,10 +292,10 @@ requires_openai_auth = true
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| `POST` | `/v1/responses` | **主代理端点**：接收 Codex Responses API 格式，转换后发给 DeepSeek，响应转回 Responses API 格式 |
-| `POST` | `/responses` | 同上（不带 `/v1` 前缀，兼容部分客户端） |
-| `POST` | `/v1/chat/completions` | **透传端点**：标准 OpenAI Chat Completions 格式，直接转发到 DeepSeek，无需格式转换 |
-| `POST` | `/chat/completions` | 同上（不带 `/v1` 前缀） |
+| `POST` | `/responses` | **主代理端点**（Codex 实际使用）：接收 Responses API 格式，转换后发给 DeepSeek |
+| `POST` | `/v1/responses` | 同上，兼容带 `/v1` 前缀的客户端 |
+| `POST` | `/chat/completions` | **透传端点**：标准 Chat Completions 格式，直接转发到 DeepSeek，无需格式转换 |
+| `POST` | `/v1/chat/completions` | 同上，兼容带 `/v1` 前缀的客户端 |
 
 ### 管理端点
 
@@ -316,7 +316,7 @@ requires_openai_auth = true
 
 ## 请求格式转换说明
 
-### `/v1/responses` 请求字段映射
+### `/responses` 请求字段映射
 
 | Codex Responses API 字段 | 转换到 DeepSeek Chat Completions 字段 | 说明 |
 |--------------------------|--------------------------------------|------|
@@ -348,7 +348,7 @@ user/system 消息中的图片块会自动转换为 DeepSeek 支持的 `image_ur
 
 > **注意**：DeepSeek 当前文本模型（`deepseek-v4-flash`、`deepseek-v4-pro`）不支持图片输入，发送图片请求会返回 API 错误。
 
-### `/v1/responses` 响应格式
+### `/responses` 响应格式
 
 **非流式响应**
 
