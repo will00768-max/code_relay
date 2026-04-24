@@ -84,7 +84,14 @@ async def proxy_responses(
             completion = await client.chat.completions.create(**params)
             result = chat_completion_to_response(completion, req_model)
             u = result.get("usage", {})
-            record_tokens(req_model, u.get("input_tokens", 0), u.get("output_tokens", 0), u.get("total_tokens", 0))
+            record_tokens(
+                req_model,
+                u.get("input_tokens", 0),
+                u.get("output_tokens", 0),
+                u.get("total_tokens", 0),
+                input_cache_hit_tokens=u.get("input_cache_hit_tokens", 0),
+                input_cache_miss_tokens=u.get("input_cache_miss_tokens", 0),
+            )
             logger.debug("非流式返回:\n%s", json.dumps(result, ensure_ascii=False, indent=2))
             return JSONResponse(content=result)
     except Exception as e:

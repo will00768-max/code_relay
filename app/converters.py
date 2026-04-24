@@ -194,7 +194,46 @@ def responses_input_to_messages(input_data) -> list[dict]:
                 "reasoning_content": "",
             })
         else:
-            messages.append({"role": role, "content": _extract_text_content(raw_content)})
+            # user/system/tool 消息：保留图片块，构建多模态 content 数组
+            if isinstance(raw_content, list):
+                content_parts = []
+                for block in raw_content:
+                    if not isinstance(block, dict):
+                        if isinstance(block, str) and block:
+                            content_parts.append({"type": "text", "text": block})
+                        continue
+                    btype = block.get("type", "")
+                    if btype in ("text", "input_text", "output_text"):
+                        text = block.get("text", "")
+                        if text:
+                            content_parts.append({"type": "text", "text": text})
+                    elif btype == "image_url":
+                        content_parts.append(block)
+                    elif btype == "image":
+                        # Codex 格式：{ type: "image", source: { type: "url"/"base64", url/data } }
+                        source = block.get("source", {})
+                        src_type = source.get("type", "")
+                        if src_type == "url":
+                            content_parts.append({
+                                "type": "image_url",
+                                "image_url": {"url": source.get("url", "")},
+                            })
+                        elif src_type == "base64":
+                            media_type = source.get("media_type", "image/jpeg")
+                            data = source.get("data", "")
+                            content_parts.append({
+                                "type": "image_url",
+                                "image_url": {"url": f"data:{media_type};base64,{data}"},
+                            })
+                # 若只有一个文本块，降级为字符串（兼容性更好）
+                if len(content_parts) == 1 and content_parts[0]["type"] == "text":
+                    messages.append({"role": role, "content": content_parts[0]["text"]})
+                elif content_parts:
+                    messages.append({"role": role, "content": content_parts})
+                else:
+                    messages.append({"role": role, "content": ""})
+            else:
+                messages.append({"role": role, "content": _extract_text_content(raw_content)})
 
     return messages
 
@@ -272,6 +311,9 @@ def chat_completion_to_response(completion, model: str) -> dict:
             })
 
     usage = completion.usage
+    details = getattr(usage, "prompt_tokens_details", None) if usage else None
+    cache_hit  = getattr(details, "cached_tokens", 0) or 0
+    cache_miss = (usage.prompt_tokens - cache_hit) if usage else 0
     return {
         "id": completion.id or f"resp_{uuid.uuid4().hex}",
         "object": "response",
@@ -280,9 +322,11 @@ def chat_completion_to_response(completion, model: str) -> dict:
         "model": completion.model or model,
         "output": output,
         "usage": {
-            "input_tokens":  usage.prompt_tokens if usage else 0,
-            "output_tokens": usage.completion_tokens if usage else 0,
-            "total_tokens":  usage.total_tokens if usage else 0,
+            "input_tokens":             usage.prompt_tokens if usage else 0,
+            "input_cache_hit_tokens":   cache_hit,
+            "input_cache_miss_tokens":  max(0, cache_miss),
+            "output_tokens":            usage.completion_tokens if usage else 0,
+            "total_tokens":             usage.total_tokens if usage else 0,
         },
         "_deepseek_finish_reason": choice.finish_reason,
     }
@@ -505,11 +549,16 @@ async def stream_response_events(
         usage_data.prompt_tokens if usage_data else 0,
         usage_data.completion_tokens if usage_data else 0,
     )
+    _details = getattr(usage_data, "prompt_tokens_details", None) if usage_data else None
+    _cache_hit  = getattr(_details, "cached_tokens", 0) or 0
+    _cache_miss = max(0, (usage_data.prompt_tokens if usage_data else 0) - _cache_hit)
     record_tokens(
         model,
         usage_data.prompt_tokens if usage_data else 0,
         usage_data.completion_tokens if usage_data else 0,
         usage_data.total_tokens if usage_data else 0,
+        input_cache_hit_tokens=_cache_hit,
+        input_cache_miss_tokens=_cache_miss,
     )
 
     yield "data: [DONE]\n\n"

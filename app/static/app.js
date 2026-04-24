@@ -1,4 +1,4 @@
-const { createApp, ref, computed, onMounted, onUnmounted } = Vue;
+const { createApp, ref, computed, onMounted, onUnmounted, nextTick } = Vue;
 
 createApp({
   setup() {
@@ -62,7 +62,149 @@ createApp({
       }
     }
 
-    // ── 模型配置 ──
+    // ── API 调用详情 ──
+    const callsLoading    = ref(false);
+    const callsByModelToday = ref([]);
+    const callsByModelTotal = ref([]);
+    const callsRecent     = ref([]);
+    const callsTab        = ref('recent'); // 'today' | 'total' | 'recent'
+
+    // 最近记录分页
+    const recentPage     = ref(1);
+    const recentPageSize = 15;
+    const recentTotalPages = computed(() => Math.max(1, Math.ceil(callsRecent.value.length / recentPageSize)));
+    const recentPaged = computed(() => {
+      const start = (recentPage.value - 1) * recentPageSize;
+      return callsRecent.value.slice(start, start + recentPageSize);
+    });
+
+    async function loadCalls() {
+      callsLoading.value = true;
+      try {
+        const r = await fetch('/admin/calls');
+        const d = await r.json();
+        callsByModelToday.value = d.by_model_today || [];
+        callsByModelTotal.value = d.by_model_total || [];
+        callsRecent.value       = d.recent || [];
+        recentPage.value        = 1;
+      } catch (e) {
+        console.error('calls error', e);
+      } finally {
+        callsLoading.value = false;
+      }
+    }
+
+    // ── 图表 ──
+    const chartLoading = ref(false);
+    const chartDays    = ref(30);
+    let _charts = {};   // { cost, calls, tokens }
+
+    const _CHART_DEFAULTS = {
+      responsive: true,
+      animation: false,
+      plugins: { legend: { display: false }, tooltip: { mode: 'index', intersect: false } },
+      scales: {
+        x: { grid: { color: 'rgba(255,255,255,.05)' }, ticks: { color: '#64748b', font: { size: 11 } } },
+        y: { grid: { color: 'rgba(255,255,255,.05)' }, ticks: { color: '#64748b', font: { size: 11 } }, beginAtZero: true },
+      },
+    };
+
+    function _makeBarDataset(label, data, color) {
+      return {
+        label, data,
+        backgroundColor: color,
+        borderColor: color,
+        borderRadius: 3,
+        barPercentage: 0.6,
+      };
+    }
+
+    function _makeLineDataset(label, data, color) {
+      return {
+        label, data,
+        borderColor: color,
+        backgroundColor: color + '33',
+        borderWidth: 2,
+        pointRadius: 2,
+        fill: true,
+        tension: 0.3,
+      };
+    }
+
+    // 颜色池，按模型分配
+    const _MODEL_COLORS = ['#4f8ef7','#22c55e','#f59e0b','#ef4444','#a78bfa','#06b6d4'];
+    function _modelColor(name, idx) { return _MODEL_COLORS[idx % _MODEL_COLORS.length]; }
+
+    function _initOrUpdate(id, type, labels, datasets) {
+      if (_charts[id]) {
+        _charts[id].data.labels = labels;
+        _charts[id].data.datasets = datasets;
+        _charts[id].update('none');
+        return;
+      }
+      const ctx = document.getElementById(id);
+      if (!ctx) return;
+      _charts[id] = new Chart(ctx, {
+        type,
+        data: { labels, datasets },
+        options: JSON.parse(JSON.stringify(_CHART_DEFAULTS)),
+      });
+    }
+
+    async function loadChart() {
+      chartLoading.value = true;
+      try {
+        const r = await fetch(`/admin/chart?days=${chartDays.value}`);
+        const d = await r.json();
+        const labels = d.labels;
+
+        await nextTick();
+
+        // 调用次数 - 按模型堆叠，tooltip 显示模型名和数量
+        const models = Object.keys(d.by_model);
+        const callsDs = models.length > 0
+          ? models.map((m, i) =>
+              ({ ..._makeBarDataset(m, d.by_model[m].calls, _modelColor(m, i)), stack: 'calls' })
+            )
+          : [_makeBarDataset('调用次数', d.calls, '#4f8ef7')];
+        _initOrUpdate('chartCalls', 'bar', labels, callsDs);
+        if (_charts['chartCalls']) {
+          _charts['chartCalls'].options.plugins.legend.display = models.length > 1;
+          _charts['chartCalls'].options.plugins.tooltip = {
+            mode: 'index',
+            intersect: false,
+            callbacks: {
+              label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y.toLocaleString()} 次`,
+            },
+          };
+          _charts['chartCalls'].update('none');
+        }
+
+        // Token - 三类折线：缓存命中、缓存未命中、输出
+        const tokDs = [
+          _makeLineDataset('缓存命中输入', d.input_cache_hit_tokens,  '#06b6d4'),
+          _makeLineDataset('缓存未命中输入', d.input_cache_miss_tokens, '#f59e0b'),
+          _makeLineDataset('输出 Tokens',  d.output_tokens,           '#22c55e'),
+        ];
+        _initOrUpdate('chartTokens', 'line', labels, tokDs);
+        if (_charts['chartTokens']) {
+          _charts['chartTokens'].options.plugins.legend.display = true;
+          _charts['chartTokens'].update('none');
+        }
+      } catch (e) {
+        console.error('chart error', e);
+      } finally {
+        chartLoading.value = false;
+      }
+    }
+
+    async function setChartDays(n) {
+      chartDays.value = n;
+      // 销毁旧图，重新创建以适应新数据范围
+      Object.values(_charts).forEach(c => c.destroy());
+      _charts = {};
+      await loadChart();
+    }
     const modelLoading  = ref(false);
     const modelList     = ref([]);
     const modelSelected = ref('');
@@ -122,16 +264,22 @@ createApp({
 
     // ── 生命周期 ──
     let statsTimer = null;
+    let callsTimer = null;
     onMounted(() => {
       clockTimer  = setInterval(() => { now.value = new Date(); }, 1000);
       statsTimer  = setInterval(loadStats, 30000);
+      callsTimer  = setInterval(loadCalls, 30000);
       loadBalance();
       loadStats();
       loadModel();
+      loadCalls();
+      loadChart();
     });
     onUnmounted(() => {
       clearInterval(clockTimer);
       clearInterval(statsTimer);
+      clearInterval(callsTimer);
+      Object.values(_charts).forEach(c => c.destroy());
     });
 
     return {
@@ -143,6 +291,11 @@ createApp({
       // model
       modelLoading, modelList, modelSelected, modelCustom,
       modelMsg, modelMsgType, modelSource, loadModel, saveModel,
+      // calls
+      callsLoading, callsByModelToday, callsByModelTotal, callsRecent, callsTab, loadCalls,
+      recentPage, recentTotalPages, recentPaged,
+      // chart
+      chartLoading, chartDays, loadChart, setChartDays,
     };
   },
 }).mount('#app');

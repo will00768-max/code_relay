@@ -1,0 +1,12 @@
+services:
+  codex-relay:
+    build: .
+    container_name: codex-relay
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    volumes:
+      # 持久化数据库和日志，避免容器重建后数据丢失
+      - ./data:/app/app/data

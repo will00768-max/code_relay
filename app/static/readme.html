@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>文档 — Codex → DeepSeek 代理</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked@12.0.0/marked.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      line-height: 1.7;
+      padding: 32px 16px 80px;
+    }
+    .container {
+      max-width: 860px;
+      margin: 0 auto;
+    }
+    .top-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 32px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid #1e2435;
+    }
+    .back-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: .84rem;
+      color: #94a3b8;
+      text-decoration: none;
+      padding: 5px 12px;
+      border: 1px solid #1e2435;
+      border-radius: 6px;
+      transition: color .15s, border-color .15s;
+    }
+    .back-btn:hover { color: #4f8ef7; border-color: #4f8ef7; }
+    .top-bar-title { font-size: .9rem; color: #64748b; }
+
+    /* Markdown 内容样式 */
+    #content h1 { font-size: 1.8rem; color: #f1f5f9; margin: 0 0 20px; }
+    #content h2 { font-size: 1.25rem; color: #e2e8f0; margin: 40px 0 14px; padding-bottom: 8px; border-bottom: 1px solid #1e2435; }
+    #content h3 { font-size: 1.05rem; color: #cbd5e1; margin: 28px 0 10px; }
+    #content h4 { font-size: .95rem; color: #94a3b8; margin: 20px 0 8px; }
+    #content p { margin-bottom: 14px; color: #cbd5e1; }
+    #content a { color: #4f8ef7; text-decoration: none; }
+    #content a:hover { text-decoration: underline; }
+    #content blockquote {
+      border-left: 3px solid #4f8ef7;
+      padding: 10px 16px;
+      margin: 16px 0;
+      background: #161b27;
+      border-radius: 0 6px 6px 0;
+      color: #94a3b8;
+    }
+    #content pre {
+      background: #161b27;
+      border: 1px solid #1e2435;
+      border-radius: 8px;
+      padding: 16px;
+      overflow-x: auto;
+      margin: 16px 0;
+    }
+    #content code {
+      font-family: "Fira Code", "Cascadia Code", Consolas, monospace;
+      font-size: .88rem;
+      color: #7dd3fc;
+    }
+    #content pre code { color: #e2e8f0; }
+    #content :not(pre) > code {
+      background: #1e2435;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: .87em;
+      color: #7dd3fc;
+    }
+    #content table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 16px 0;
+      font-size: .88rem;
+    }
+    #content th {
+      background: #161b27;
+      color: #94a3b8;
+      font-weight: 600;
+      padding: 8px 12px;
+      text-align: left;
+      border: 1px solid #1e2435;
+    }
+    #content td {
+      padding: 7px 12px;
+      border: 1px solid #1e2435;
+      color: #cbd5e1;
+    }
+    #content tr:nth-child(even) td { background: #0d1020; }
+    #content ul, #content ol {
+      padding-left: 24px;
+      margin-bottom: 14px;
+    }
+    #content li { margin-bottom: 4px; color: #cbd5e1; }
+    #content hr { border: none; border-top: 1px solid #1e2435; margin: 32px 0; }
+    #loading { color: #64748b; font-size: .9rem; padding: 40px 0; text-align: center; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="top-bar">
+    <a class="back-btn" href="/admin">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+      返回面板
+    </a>
+    <span class="top-bar-title">使用文档</span>
+  </div>
+  <div id="loading">加载中…</div>
+  <div id="content" style="display:none"></div>
+</div>
+<script>
+  fetch('/readme-raw')
+    .then(r => r.text())
+    .then(md => {
+      document.getElementById('loading').style.display = 'none';
+      const el = document.getElementById('content');
+      el.style.display = '';
+      el.innerHTML = marked.parse(md);
+    })
+    .catch(() => {
+      document.getElementById('loading').textContent = '文档加载失败';
+    });
+</script>
+</body>
+</html>

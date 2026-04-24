@@ -15,12 +15,13 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
 import app.config as cfg
-from app.database import get_balance_stats, get_token_summary, save_balance_snapshot
+from app.database import get_balance_stats, get_token_summary, get_call_details, get_chart_data, save_balance_snapshot
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
 _STATIC_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+_ROOT_DIR   = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 
 
 @router.get("/", summary="健康检查")
@@ -32,6 +33,18 @@ async def health():
 async def admin_panel():
     index_path = os.path.join(_STATIC_DIR, "index.html")
     return FileResponse(index_path, media_type="text/html")
+
+
+@router.get("/readme", summary="查看 README 文档（HTML 渲染页）")
+async def readme():
+    html_path = os.path.join(_STATIC_DIR, "readme.html")
+    return FileResponse(html_path, media_type="text/html")
+
+
+@router.get("/readme-raw", summary="README 原始 Markdown 内容")
+async def readme_raw():
+    readme_path = os.path.join(_ROOT_DIR, "README.md")
+    return FileResponse(readme_path, media_type="text/plain; charset=utf-8")
 
 
 @router.get("/admin/balance", summary="查询余额")
@@ -59,6 +72,16 @@ async def get_balance():
 @router.get("/admin/stats", summary="Token 统计")
 async def get_stats():
     return JSONResponse(get_token_summary())
+
+
+@router.get("/admin/calls", summary="API 调用详情")
+async def get_calls():
+    return JSONResponse(get_call_details())
+
+
+@router.get("/admin/chart", summary="图表数据")
+async def get_chart(days: int = 30):
+    return JSONResponse(get_chart_data(min(max(days, 7), 90)))
 
 
 @router.get("/admin/models", summary="可用模型列表")

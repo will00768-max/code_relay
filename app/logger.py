@@ -4,7 +4,9 @@
 import logging
 import os
 
-_LOG_FILE = os.path.join(os.path.dirname(os.path.dirname(__file__)), "relay.log")
+_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+os.makedirs(_DATA_DIR, exist_ok=True)
+_LOG_FILE = os.path.join(_DATA_DIR, "relay.log")
 _fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
 
 # delay=True：首次写入时才创建文件，不持续占用句柄
