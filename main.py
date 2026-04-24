@@ -333,19 +333,34 @@ def responses_input_to_messages(input_data) -> list[dict]:
                 asst.setdefault("tool_calls", []).append(tool_call_entry)
             else:
                 # 没有 assistant 消息，新建一条
+                # DeepSeek 要求 content 为 null（不能是空字符串）
                 messages.append({
                     "role": "assistant",
-                    "content": "",
+                    "content": None,
                     "tool_calls": [tool_call_entry],
                 })
             continue
 
         # ── function_call_output：工具执行结果 → role="tool" ──
         if item_type == "function_call_output":
+            raw_output = item.get("output", "")
+            # Codex 的 output 可能是 JSON 字符串：{"output":"...", "metadata":{...}}
+            # DeepSeek tool content 需要是实际结果字符串，提取 output 字段
+            if isinstance(raw_output, str):
+                try:
+                    parsed = json.loads(raw_output)
+                    if isinstance(parsed, dict) and "output" in parsed:
+                        tool_content = str(parsed["output"])
+                    else:
+                        tool_content = raw_output
+                except (json.JSONDecodeError, ValueError):
+                    tool_content = raw_output
+            else:
+                tool_content = json.dumps(raw_output, ensure_ascii=False)
             messages.append({
                 "role": "tool",
                 "tool_call_id": item.get("call_id", item.get("id", "")),
-                "content": str(item.get("output", "")),
+                "content": tool_content,
             })
             continue
 
@@ -417,13 +432,12 @@ def build_chat_params(body: dict, model: str) -> dict:
     if system_prompt:
         messages.insert(0, {"role": "system", "content": system_prompt})
 
-    # ── reasoning_content 兜底补全 ──
-    # DeepSeek thinking 模式要求多轮对话中每条历史 assistant 消息都必须携带
-    # reasoning_content 字段，否则报 400。Codex 不感知该字段，历史消息里不会
-    # 携带它。无论模型名称，统一补空字符串（对非 thinking 模型无副作用）。
+    # ── 清理 reasoning_content ──
+    # DeepSeek 官方文档明确：多轮对话拼接 assistant 历史消息时，
+    # 必须删除 reasoning_content，否则返回 400 错误。
+    # （thinking 模型的内部思考过程不应作为上下文回传）
     for msg in messages:
-        if msg.get("role") == "assistant" and "reasoning_content" not in msg:
-            msg["reasoning_content"] = ""
+        msg.pop("reasoning_content", None)
 
     params["messages"] = messages
 
@@ -845,13 +859,10 @@ async def admin_panel():
 
   <!-- 模型配置 -->
   <div class="card">
-    <h2>模型配置</h2>
+    <h2>模型配置 <button class="refresh-btn" onclick="loadModel()">刷新列表</button></h2>
     <label>当前默认模型（所有 Codex 请求将强制使用此模型）</label>
     <select id="model-select">
-      <option value="deepseek-v4-flash">deepseek-v4-flash（推荐）</option>
-      <option value="deepseek-v4-pro">deepseek-v4-pro</option>
-      <option value="deepseek-chat">deepseek-chat（旧）</option>
-      <option value="deepseek-reasoner">deepseek-reasoner（旧）</option>
+      <option value="">加载中…</option>
     </select>
     <label>自定义模型名（填写后覆盖上方选择）</label>
     <input type="text" id="model-custom" placeholder="例如: deepseek-v4-flash">
@@ -893,14 +904,44 @@ async function loadStats() {
 }
 
 async function loadModel() {
+  const sel = document.getElementById('model-select');
   try {
-    const r = await fetch('/admin/model');
-    const d = await r.json();
-    const sel = document.getElementById('model-select');
-    const known = Array.from(sel.options).map(o => o.value);
-    if (known.includes(d.model)) { sel.value = d.model; document.getElementById('model-custom').value = ''; }
-    else { document.getElementById('model-custom').value = d.model; }
-  } catch(e) {}
+    // 同时拉模型列表和当前选中模型
+    const [rList, rCur] = await Promise.all([fetch('/admin/models'), fetch('/admin/model')]);
+    const dList = await rList.json();
+    const dCur  = await rCur.json();
+    const current = dCur.model || '';
+
+    // 重建 <option>
+    sel.innerHTML = '';
+    const models = dList.models || [];
+    models.forEach(id => {
+      const opt = document.createElement('option');
+      opt.value = id;
+      opt.textContent = id;
+      sel.appendChild(opt);
+    });
+
+    // 如果当前模型不在列表里，额外插一条并选中
+    if (!models.includes(current) && current) {
+      const opt = document.createElement('option');
+      opt.value = current;
+      opt.textContent = current + '（当前）';
+      sel.insertBefore(opt, sel.firstChild);
+    }
+
+    if (models.includes(current)) {
+      sel.value = current;
+      document.getElementById('model-custom').value = '';
+    } else {
+      sel.value = models[0] || '';
+      document.getElementById('model-custom').value = current;
+    }
+
+    const src = dList.source === 'fallback' ? '（API 不可用，显示默认列表）' : '';
+    document.getElementById('model-msg').textContent = src;
+    document.getElementById('model-msg').className = src ? 'msg' : '';
+  } catch(e) { sel.innerHTML = '<option value="">加载失败</option>'; }
 }
 
 async function saveModel() {
@@ -952,6 +993,29 @@ async def get_balance():
 @app.get("/admin/stats", summary="查询 token 统计")
 async def get_stats():
     return JSONResponse(get_token_summary())
+
+
+@app.get("/admin/models", summary="从 DeepSeek 获取可用模型列表")
+async def list_models():
+    """代理 DeepSeek GET /models 接口，失败时返回内置默认列表。"""
+    import httpx
+    _FALLBACK = ["deepseek-v4-flash", "deepseek-v4-pro"]
+    if not DEEPSEEK_API_KEY:
+        return JSONResponse({"models": _FALLBACK, "source": "fallback"})
+    try:
+        async with httpx.AsyncClient(timeout=10) as hc:
+            resp = await hc.get(
+                f"{DEEPSEEK_BASE_URL.rstrip('/')}/models",
+                headers={"Authorization": f"Bearer {DEEPSEEK_API_KEY}"},
+            )
+            data = resp.json()
+            models = [m["id"] for m in data.get("data", []) if m.get("id")]
+            if not models:
+                models = _FALLBACK
+            return JSONResponse({"models": models, "source": "api"})
+    except Exception as e:
+        logger.warning("获取模型列表失败: %s", e)
+        return JSONResponse({"models": _FALLBACK, "source": "fallback"})
 
 
 @app.get("/admin/model", summary="查询当前默认模型")
