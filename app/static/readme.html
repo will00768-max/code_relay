@@ -122,6 +122,19 @@
   <div id="content" style="display:none"></div>
 </div>
 <script>
+  // 配置 marked：为每个标题生成 id，支持目录锚点跳转
+  // 使用 DOM 后处理方式，避免 marked 版本差异导致的兼容问题
+  function addHeadingIds(container) {
+    container.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(el => {
+      if (el.id) return;
+      const id = el.textContent
+        .toLowerCase()
+        .replace(/\s+/g, '-')
+        .replace(/[^\u4e00-\u9fa5\w-]/g, '');
+      el.id = id;
+    });
+  }
+
   fetch('/readme-raw')
     .then(r => r.text())
     .then(md => {
@@ -129,6 +142,13 @@
       const el = document.getElementById('content');
       el.style.display = '';
       el.innerHTML = marked.parse(md);
+      addHeadingIds(el);
+
+      // 渲染完成后处理页面初始锚点（如果 URL 带 #hash 直接跳转）
+      if (location.hash) {
+        const target = document.getElementById(location.hash.slice(1));
+        if (target) setTimeout(() => target.scrollIntoView({ behavior: 'smooth' }), 50);
+      }
     })
     .catch(() => {
       document.getElementById('loading').textContent = '文档加载失败';

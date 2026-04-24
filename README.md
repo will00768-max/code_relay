@@ -76,7 +76,7 @@ code_relay/
 ### 1. 克隆项目
 
 ```bash
-git clone https://github.com/liao65656/code_relay.git
+git clone https://github.com/will00768-max/code_relay.git
 cd code_relay
 ```
 
@@ -219,7 +219,7 @@ docker run -d `
 
 ## Codex CLI 配置教程
 
-> 适用于 **Codex CLI**（命令行工具）和 **VSCode Codex 插件**，配置完成后重启即可生效。
+> 适用于 **Codex CLI**（命令行工具）、**VSCode Codex 插件** 和 **Codex**（[codex.openai.com](https://codex.openai.com) Web 端），配置完成后重启即可生效。
 
 ### 配置文件路径
 
