@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeepSeek 代理管理面板</title>
+  <!-- 静态依赖：Vue 3 CDN（生产版） -->
+  <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js"></script>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+<div id="app">
+
+  <!-- 顶部标题 -->
+  <div class="header">
+    <h1>
+      <span class="dot"></span>
+      DeepSeek 代理管理面板
+    </h1>
+    <span class="header-time">{{ dateStr }} &nbsp; {{ timeStr }}</span>
+  </div>
+
+  <!-- 第一行：余额 + 今日 Token + 累计 Token -->
+  <div class="grid">
+
+    <!-- 账户余额 -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">账户余额</span>
+        <button class="btn btn-ghost" @click="loadBalance" :disabled="balLoading">
+          <span v-if="balLoading" class="spin"></span>
+          <span v-else>刷新</span>
+        </button>
+      </div>
+      <div v-if="balErr" style="color:var(--red);font-size:.82rem;margin-bottom:8px">{{ balErr }}</div>
+      <div class="stat-row">
+        <span class="stat-label">剩余余额</span>
+        <span class="stat-val big">{{ balRemain ?? '--' }}</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">今日消费</span>
+        <span class="stat-val cost">{{ balToday ?? '--' }}</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">累计消费</span>
+        <span class="stat-val cost">{{ balAll ?? '--' }}</span>
+      </div>
+      <div class="ts">{{ balTs }}</div>
+    </div>
+
+    <!-- 今日 Token -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">今日 Token 用量</span>
+        <button class="btn btn-ghost" @click="loadStats" :disabled="statsLoading">
+          <span v-if="statsLoading" class="spin"></span>
+          <span v-else>刷新</span>
+        </button>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">输入 Tokens</span>
+        <span class="stat-val">{{ statsToday ? fmt(statsToday.input_tokens) : '--' }}</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">输出 Tokens</span>
+        <span class="stat-val">{{ statsToday ? fmt(statsToday.output_tokens) : '--' }}</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">合计 Tokens</span>
+        <span class="stat-val">{{ statsToday ? fmt(statsToday.total_tokens) : '--' }}</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">估算消费</span>
+        <span class="stat-val cost">{{ statsToday ? fmtCost(statsToday.cost_cny) : '--' }}</span>
+      </div>
+    </div>
+
+    <!-- 累计 Token -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">累计 Token 用量</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">输入 Tokens</span>
+        <span class="stat-val">{{ statsTotal ? fmt(statsTotal.input_tokens) : '--' }}</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">输出 Tokens</span>
+        <span class="stat-val">{{ statsTotal ? fmt(statsTotal.output_tokens) : '--' }}</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">合计 Tokens</span>
+        <span class="stat-val">{{ statsTotal ? fmt(statsTotal.total_tokens) : '--' }}</span>
+      </div>
+      <div class="stat-row">
+        <span class="stat-label">估算消费</span>
+        <span class="stat-val cost">{{ statsTotal ? fmtCost(statsTotal.cost_cny) : '--' }}</span>
+      </div>
+    </div>
+
+    <!-- 模型配置 -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">模型配置</span>
+        <button class="btn btn-ghost" @click="loadModel" :disabled="modelLoading">
+          <span v-if="modelLoading" class="spin"></span>
+          <span v-else>刷新列表</span>
+        </button>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">默认模型（所有 Codex 请求将使用此模型）</label>
+        <select v-model="modelSelected">
+          <option v-for="m in modelList" :key="m" :value="m">{{ m }}</option>
+          <option v-if="modelList.length === 0" value="">加载中…</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label">
+          自定义模型名
+          <span v-if="modelSource === 'fallback'" class="badge badge-red" style="margin-left:6px">API 不可用</span>
+          <span v-else-if="modelSource === 'api'" class="badge badge-green" style="margin-left:6px">已同步</span>
+        </label>
+        <input
+          v-model="modelCustom"
+          type="text"
+          placeholder="填写后覆盖上方选择，例如: deepseek-v4-flash"
+        />
+      </div>
+
+      <button class="btn btn-primary btn-full" @click="saveModel">保存模型配置</button>
+
+      <div v-if="modelMsg" class="msg" :class="modelMsgType === 'ok' ? 'msg-ok' : 'msg-err'">
+        {{ modelMsg }}
+      </div>
+    </div>
+
+  </div><!-- /grid -->
+
+</div><!-- /#app -->
+
+<script src="/static/app.js"></script>
+</body>
+</html>
